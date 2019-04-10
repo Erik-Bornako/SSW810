@@ -1,6 +1,6 @@
 """
 Author: Erik Bornako
-Date: 6 April 2019
+Date: 10 April 2019
 SSW810 HW10
 """
 
@@ -9,8 +9,9 @@ import os
 import string
 from prettytable import PrettyTable
 import unittest
+import sqlite3
 
-def file_reader(directory, file_name):
+def file_reader(directory, file_name, num_of_fields, sep='\t', header=False):
     try:
         fp = open(os.path.join(directory, file_name), 'r')
     except FileNotFoundError:
@@ -18,15 +19,28 @@ def file_reader(directory, file_name):
     except IOError:
         raise IOError("Could not read file ", os.path.join(directory, file_name))
     else:
-        return fp
+        with fp:
+            path = os.path.join(directory, file_name)
+            line_number = 1
+            for line in fp:
+                if header == True:
+                    header = False
+                    continue
+                else:
+                    columns = tuple(line.strip().split(sep))
+                    if len(columns) != num_of_fields:
+                        raise ValueError(path + " has " + str(len(columns)) + " fields on line " + str(line_number) + " but expected " + str(num_of_fields))
+                    else:
+                        yield columns
+                        line_number += 1
 
 
 class Major:
 
-    def __init__(self, major, required_courses=set(), elective_courses=set()):
+    def __init__(self, major):
         self.major = major
-        self.required_courses = required_courses #set
-        self.elective_courses = elective_courses #set
+        self.required_courses = set() #set
+        self.elective_courses = set() #set
 
     def add_required_course(self, courses):
         return self.required_courses.add(courses)
@@ -68,15 +82,15 @@ class Student:
 
 class Instructor:
 
-    def __init__(self, cwid, name, department, courses):
+    def __init__(self, cwid, name, department):
         self.cwid = cwid
         self.name = name
         self.department = department
-        self.courses = courses
+        self.courses = defaultdict(int)
     
     def add_course(self, course):
         """Adds additional student where the course has been taught"""
-        self.courses[course] = self.courses.get(course, 0) + 1
+        self.courses[course] += 1
         return self.courses
 
     def summary(self, course):
@@ -85,70 +99,66 @@ class Instructor:
 
 class Repository:
 
-    def __init__(self, dir_path, majors=set(), students=set(), instructors=set(), major_pt = PrettyTable(field_names=['Dept', 'Required', 'Electives']), student_pt=PrettyTable(field_names=['CWID', 'Name', 'Major', 'Completed Courses', 'Remaining Required', 'Remaining Electives']),  instructor_pt=PrettyTable(field_names=['CWID', 'Name', 'Dept', 'Course', 'Students'])):
+    def __init__(self, dir_path):
         self.dir_path = dir_path
-        self.majors = majors
-        self.students = students
-        self.instructors = instructors
-        self.major_pt = major_pt
-        self.student_pt = student_pt
-        self.instructor_pt = instructor_pt
+        self.majors = set()
+        self.students = set()
+        self.instructors = set()
+        self.major_pt = PrettyTable(field_names=['Dept', 'Required', 'Electives'])
+        self.student_pt = PrettyTable(field_names=['CWID', 'Name', 'Major', 'Completed Courses', 'Remaining Required', 'Remaining Electives'])
+        self.instructor_pt = PrettyTable(field_names=['CWID', 'Name', 'Dept', 'Course', 'Students'])
         
-        fp1 = file_reader(self.dir_path, 'students.txt') 
-        with fp1:
-            for line in fp1:
-                data = line.strip().split('\t')
-                self.students.add(Student(data[0], data[1], data[2], {}))
+        fp1 = file_reader(self.dir_path, 'students.txt', 3) 
+        for line in fp1:
+            self.students.add(Student(line[0], line[1], line[2], {}))
 
-        fp2 = file_reader(self.dir_path, 'instructors.txt') 
-        with fp2:
-            for line in fp2:
-                data = line.strip().split('\t')
-                self.instructors.add(Instructor(data[0], data[1], data[2], {}))
+        fp2 = file_reader(self.dir_path, 'instructors.txt', 3) 
+        for line in fp2:
+            self.instructors.add(Instructor(line[0], line[1], line[2]))
 
-        fp3 = file_reader(self.dir_path, 'grades.txt')
-        with fp3:
-            for line in fp3:
-                data = line.strip().split('\t')
-                
-                for student in self.students:
-                    if student.cwid == data[0]:
-                        student.add_grade({data[1]: data[2]})
-                    else:
-                        continue
-                
-                for instructor in self.instructors:
-                    if instructor.cwid == data[3]:
-                        instructor.add_course(data[1])
-                    else:
-                        continue
-        
-        fp4 = file_reader(self.dir_path, 'majors.txt')
-        with fp4:
-            for line in fp4:
-                data = line.strip().split('\t')
-                if len(self.majors) == 0:
-                    self.majors.add(Major(data[0]))
-                for item in self.majors:
-                    if item.major != data[0]:
-                        continue
-                    else:
-                        if data[1].lower() == 'r':
-                            item.add_required_course(data[2]) # adds requred course
-                            break
-                        if data[1].lower() == 'e':
-                            item.add_elective_course(data[2]) # adds elective course
-                            break
+        fp3 = file_reader(self.dir_path, 'grades.txt', 4)
+        for line in fp3:
+
+            for student in self.students:
+                if student.cwid == line[0]:
+                    student.add_grade({line[1]: line[2]})
                 else:
-                    if data[1].lower() == 'r':
-                        self.majors.add(Major(data[0],required_courses=set([data[2]]), elective_courses=set()))
-                    if data[1].lower() == 'e':
-                        self.majors.add(Major(data[0],elective_courses=set([data[2]]), required_courses=set()))
+                    continue
+            
+            for instructor in self.instructors:
+                if instructor.cwid == line[3]:
+                    instructor.add_course(line[1])
+                else:
+                    continue
+        
+        fp4 = file_reader(self.dir_path, 'majors.txt', 3)
+        for line in fp4:
+            if len(self.majors) == 0:
+                self.majors.add(Major(line[0]))
+            for item in self.majors:
+                if item.major != line[0]:
+                    continue
+                else:
+                    if line[1].lower() == 'r':
+                        item.add_required_course(line[2]) # adds requred course
+                        break
+                    if line[1].lower() == 'e':
+                        item.add_elective_course(line[2]) # adds elective course
+                        break
+            else:
+                if line[1].lower() == 'r':
+                    new_major = Major(line[0])
+                    new_major.add_required_course(line[2])
+                    self.majors.add(new_major)
+                if line[1].lower() == 'e':
+                    new_major = Major(line[0])
+                    new_major.add_elective_course(line[2])
+                    self.majors.add(new_major)
 
         for item in self.majors:
             self.major_pt.add_row(item.summary())
         
-        print(major_pt)
+        print(self.major_pt)
 
         for student in self.students:
             set_of_completed_courses = set()
@@ -166,14 +176,24 @@ class Repository:
                     student.add_elective_courses(remaining_electives)
                
             self.student_pt.add_row(student.summary())
-        student_pt.sortby = 'CWID'
-        print(student_pt)
+        self.student_pt.sortby = 'CWID'
+        print(self.student_pt)
 
         for instructor in self.instructors:
             for item in instructor.courses.keys():
                 self.instructor_pt.add_row(instructor.summary(item))
 
-        print(instructor_pt)
+        print(self.instructor_pt)
+
+DB_file = r'C:\Users\Erik\Desktop\SSW810\SSW810HW11.db' # file path to datebase file
+db = sqlite3.connect(DB_file)
+
+instructor_pt_with_sql = PrettyTable(field_names=['CWID', 'Name', 'Dept', 'Course', 'Students'])
+for row in db.execute("select Instructor_CWID, Name, Dept, Course, count(Course) As Students from HW11_instructors join HW11_grades on CWID = Instructor_CWID group by Course order by Name"):
+    instructor_pt_with_sql.add_row(row)
+
+print(instructor_pt_with_sql)
 
 if __name__ == '__main__':
-    Repository('C:\\Users\\Erik\\Desktop\\SSW810')
+    Repository(r'C:\Users\Erik\Desktop\SSW810')
+
