@@ -1,7 +1,7 @@
 """
 Author: Erik Bornako
-Date: 10 April 2019
-SSW810 HW10
+Date: 16 April 2019
+SSW810 HW12
 """
 
 from collections import defaultdict
@@ -10,6 +10,7 @@ import string
 from prettytable import PrettyTable
 import unittest
 import sqlite3
+from flask import Flask, render_template
 
 def file_reader(directory, file_name, num_of_fields, sep='\t', header=False):
     try:
@@ -194,6 +195,20 @@ for row in db.execute("select Instructor_CWID, Name, Dept, Course, count(Course)
 
 print(instructor_pt_with_sql)
 
+app = Flask(__name__)
+
+@app.route('/')
+def student_courses():
+    query = "select Instructor_CWID, Name, Dept, Course, count(Course) As Students from HW11_instructors join HW11_grades on CWID = Instructor_CWID group by Course order by Name"
+    db = sqlite3.connect(DB_file)
+    results = db.execute(query)
+
+    data = [{'cwid': Instructor_CWID, 'name': Name, 'Dept': Dept,'Course': Course, 'Students': Students,} for Instructor_CWID, Name, Dept, Course, Students in results]
+
+    db.close
+
+    return render_template('instructor_list.html', title='Stevens Repository', table_title='Number of Students by Course and Instructor', instructors=data)
+
+app.run(debug=True)
 if __name__ == '__main__':
     Repository(r'C:\Users\Erik\Desktop\SSW810')
-
